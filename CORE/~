@@ -1,0 +1,111 @@
+/*
+ * =====================================================================================
+ *
+ *       Filename:  databaseManagement.cpp
+ *
+ *    Description:  all database management
+ *
+ *        Version:  1.0
+ *        Created:  Wednesday 29 April 2015 04:45:39  IST
+ *       Revision:  none
+ *       Compiler:  g++
+ *
+ *         Author:  Suman Roy (), suman.roy@cognizant.com
+ *   Organization:  Cognizant Technological Solutions
+ *
+ * =====================================================================================
+ */
+#include "databaseManagement.hpp"
+char *zErrMsg ;
+std::string quotesql( const std::string& s ) {
+        return std::string("\"") + s + std::string("\"");
+}
+
+bool executeStatus (const int status , char * zErrMsg ){
+	bool    returnValue;
+
+	returnValue = true;
+
+
+         if ( status != SQLITE_OK ){
+		 std::cerr<<__DATE__<<"_"<<__TIME__<<"["<<__FUNCTION__<<"] ["<<
+			 __FILE__<<" ] ["<<__LINE__
+			 <<"sqlite3  executeStatus -> error"<<std::endl;
+		 returnValue = false;
+	 }
+         else {
+#ifdef DEBUG
+		 std::cerr<<__DATE__<<"_"<<__TIME__<<"["<<__FUNCTION__<<"] ["<<
+			 __FILE__<<" ] ["<<__LINE__
+			 <<"sqlite3  executeStatus -> ok"<<std::endl;
+#endif
+	 }
+	 sqlite3_free ( zErrMsg );
+	 return returnValue;
+}
+
+int callback(void *temp, const  int argc, char **argv, char **azColName){
+	int i;
+	for(i=0; i<argc; i++){
+		std::cout<<(char*)temp<<std::endl;
+		std::cout<<azColName[i]<<argv[i]<<std::endl;
+	//	printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+	}
+	return 0;
+}
+
+
+
+DbManager::DbManager(){
+	std::string    databaseName;
+
+	databaseName = "filterDb.db";
+	rc = sqlite3_open ( databaseName.c_str() , &db );
+	if ( rc ){
+		std::cerr<<__DATE__<<"_"<<__TIME__<<"["<<__FILE__<<"] ["<<__FUNCTION__<<"] ["<<__LINE__<<"] Database notAble to open\n";
+		dataBaseOpened = false;
+	}else dataBaseOpened = true;
+}
+DbManager::~DbManager(){
+	if ( dataBaseOpened == true ){
+		if ( sqlite3_close( db ) == SQLITE_OK  ){
+			dataBaseOpened = false;
+		}
+	}
+}
+
+bool DbManager::createTable ( void ){
+	bool           returnValue;
+	std::string    sqlStatementToCreateTable;
+	std::string    sqlStatementToCreateTableIndex;
+
+
+	returnValue = true;
+	if ( dataBaseOpened ){
+		sqlStatementToCreateTable ="CREATE TABLE PACKETS( PACKET_NUMBER PRIMARY KEY NOT NULL,CONVERSATIONID NOT NULL ,SOURCE_IP TEXT ,\
+					    DESTINATION_IP TEXT,\
+					    TIME TEXT,\
+					    SOURCE_PORT INTEGER NOT NULL,DESTINATION_PORT INTEGER NOT NULL, URL TEXT, SEQUENCE_NUMBER INTEGER NOT NULL , ACKNOWLEDGE_NUMBER INTEGER NOT NULL);";
+		returnValue = executeStatus ( sqlite3_exec(db,sqlStatementToCreateTable.c_str(), callback, 0, &zErrMsg ) , zErrMsg);
+		sqlStatementToCreateTableIndex ="CREATE TABLE PACKETSINDEX(CONVERSATIONID INTEGER PRIMARY KEY NOT NULL , SOURCE_IP TEXT ,\
+					    DESTINATION_IP TEXT ,\
+					    SOURCE PORT INTEGER, DESTINATIONPORT INTEGER, URL TEXT);";
+	}else returnValue = false;
+
+	return returnValue;
+           
+
+}
+bool DbManager::insertPacketInfo(std::string sourceIp, std::string destinationIp, std::string startTime , std::string endTime , int port, std::string url ){
+	bool           returnValue;
+	std::string    sqlStatement;
+
+	returnValue = true;
+	if ( dataBaseOpened ){
+		sqlStatement = "Insert INTO PACKETS (SOURCE_IP , DESTINATION_IP , START_TIME , END_TIME , PORT , URL ) VALUES (" + quotesql( sourceIp ) + "," + quotesql( destinationIp) +","+ quotesql( startTime )+","+quotesql( endTime)+","+ std::to_string(port) + "," + quotesql( url )+");";
+		returnValue = executeStatus ( sqlite3_exec( db , sqlStatement.c_str(), callback , 0 , &zErrMsg), zErrMsg);
+	}else returnValue = false;
+
+       return returnValue;	
+
+}

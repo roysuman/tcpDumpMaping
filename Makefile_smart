@@ -1,0 +1,23 @@
+CC = g++
+LDFLAGS = -L. -ljson_linux-gcc-4.8_libmt -lsqlite3 -lpcap
+CFLAGS = -Wall -Wextra -std=c++11
+RM = rm -f
+tcpAnalyzer:	startUp.cpp sniffing.o init.o grupPackets.o buffer.o report.o
+	$(CC) $(CFLAGS) $? $(LDFLAGS) -o $@
+sniffing.o:	CORE/sniffing.cpp CORE/sniffing.hpp CORE/packetDataStructure.hpp buffer.o
+	$(CC) $(CFLAGS) CORE/sniffing.cpp $(LDFLAGS)
+buffer.o:	CORE/buffer.cpp CORE/buffer.hpp CORE/packetDataStructure.hpp
+	$(CC) $(CFLAGS) CORE/buffer.cpp $(LDFLAGS)
+loghandler.o:	CORE/loghandler.cpp CORE/loghandler.hpp
+	$(CC) $(CFLAGS) CORE/loghandler.cpp $(LDFLAGS)
+databaseManagement.o:	CORE/databaseManagement.cpp CORE/databaseManagement.hpp CORE/packetDataStructure.hpp CORE/reportStruct.hpp
+	$(CC) $(CFLAGS) CORE/databaseManagement.cpp $(LDFLAGS)
+init.o:	CORE/init.cpp CORE/init.cpp loghandler.o
+	$(CC) $(CFLAGS) CORE/init.cpp $(LDFLAGS)
+report.o:	CORE/report.cpp CORE/init.hpp CORE/reportStruct.hpp databaseManagement.o
+	$(CC) $(CFLAGS) CORE/report.cpp $(LDFLAGS)
+grupPackets.o:	CORE/grupPackets.cpp CORE/grupPackets.hpp CORE/packetDataStructure.hpp databaseManagement.o
+	$(CC) $(CFLAGS) CORE/grupPackets.cpp $(LDFLAGS)
+clean:
+	$(RM) *.o tcpAnalyzer .hpp.*
+

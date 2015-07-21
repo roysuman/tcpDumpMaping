@@ -1,0 +1,410 @@
+/*
+ * =====================================================================================
+ *
+ *       Filename:  grupPackets.cpp
+ *
+ *    Description:  
+ *
+ *        Version:  1.0
+ *        Created:  Friday 01 May 2015 02:44:11  IST
+ *       Revision:  none
+ *       Compiler:  gcc
+ *
+ *         Author:  ROY (), email.suman.roy@gmail.com
+ *   Organization:  NA
+ *
+ * =====================================================================================
+ */
+#include "grupPackets.hpp"
+
+long k=0;
+//static datatype
+bool               GrupPacket::isInit = false;
+int                GrupPacket::packetNumber =-1;
+bool                GrupPacket::isSynFin = false;
+__conversation__    GrupPacket::conversationDiary[ 1000];
+int                 GrupPacket::activeConversationId = -1;
+
+GrupPacket::GrupPacket(){
+	try{
+		dbInstance = new DbManager();
+		if ( dbInstance->isOpen() ){
+			dbInstance->createTable();
+		}
+
+		for ( int i = 0 ; i < 1000 ; ++i ){
+			conversationDiary [ i ].currentIndexSourceArray = -1;
+			conversationDiary [ i].currentIndexDestinationArray = -1;
+			conversationDiary [ i ] .sourcePreviousPackets =new __prevNetPacket__ [ 10 ];
+			conversationDiary [ i ] .destinationPreviousPackets = new __prevNetPacket__ [ 10 ];
+			packetNumber = -1;
+
+
+		}
+		isInit = true;
+	}
+	catch ( const std::bad_alloc &ba){
+		std::cerr<<PRINT<<"Exception:"<<ba.what()<<std::endl;
+		isInit = false;
+	}
+}
+GrupPacket::~GrupPacket(){
+	for ( int i = 0 ; i < 1000 ; ++i ){
+		delete conversationDiary[ i ].destinationPreviousPackets;
+		delete conversationDiary [ i ].sourcePreviousPackets;
+	}
+}
+
+bool GrupPacket::copyPacket( bool cliSerFlag , __conversation__ *activeConversation , __rawNetData__ *packetData ){
+	bool    returnValue;
+#ifdef DEBUG
+	std::cout<<PRINT<<"Data going to insert\n"
+		<<"Sequence Number :[ "<<packetData->sequenceNumber<<" ]\n"
+		<<"Acknowledge Number:["<<packetData->acknowledgeNumber<<" ] \n"
+		<<"Data Length:["<<packetData->dataLength<<"] \n"
+		<<"Acknowledge Flag:[ "<<packetData->networkTcpFlags.__ACK__<<"]"<<std::endl;
+#endif
+
+	returnValue = true;
+	try {
+		++packetNumber;
+
+		if ( cliSerFlag ){ // this a client packet
+			activeConversation->sourcePreviousPackets[ (++activeConversation->currentIndexSourceArray) ].sequenceNumber = packetData->sequenceNumber ;
+			activeConversation->sourcePreviousPackets[ ( activeConversation->currentIndexSourceArray)].acknowledgeNumber = packetData->acknowledgeNumber;
+
+			activeConversation->sourcePreviousPackets[ ( activeConversation->currentIndexSourceArray)].dataLength = packetData->dataLength ;
+
+			activeConversation->sourcePreviousPackets[ ( activeConversation->currentIndexSourceArray)].networkTcpFlags.__ACK__  = packetData->networkTcpFlags.__ACK__;
+#ifdef DEBUG
+			std::cout<<PRINT<<"It's copying at client array Index:["<<activeConversation->currentIndexSourceArray <<" \n"<<std::endl;
+#endif
+		}
+		else{
+			activeConversation->destinationPreviousPackets[ (++activeConversation->currentIndexDestinationArray) ].sequenceNumber = packetData->sequenceNumber;
+			activeConversation->destinationPreviousPackets[ (activeConversation->currentIndexDestinationArray) ].acknowledgeNumber = packetData->acknowledgeNumber;
+
+			activeConversation->destinationPreviousPackets[ (activeConversation->currentIndexDestinationArray) ].dataLength = packetData->dataLength;
+			activeConversation->destinationPreviousPackets[ (activeConversation->currentIndexDestinationArray) ].networkTcpFlags.__ACK__ = packetData->networkTcpFlags.__ACK__;
+#ifdef DEBUG
+			std::cout<<PRINT<<"It's copying at server array Index:["<<activeConversation->currentIndexDestinationArray <<" ]"<<std::endl;
+#endif
+		}
+	}
+	catch ( const std::exception &e ){
+		std::cerr<<PRINT<<"Exception:"<<e.what()<<std::endl;
+		returnValue = false;
+	}
+	return returnValue;
+}
+
+
+bool GrupPacket::searchMother( bool cliSerFlag , __conversation__ *activeConversation , __rawNetData__ *packetData ){
+	int    index;
+	bool      returnValue;
+	returnValue = true;
+	if ( activeConversationId < zero ){ // conversationId must be >0
+		std::cout<<PRINT<<"RETURNONG FALSE\n";
+		returnValue = false;
+	}
+	try {
+		if( cliSerFlag && returnValue ){
+			for ( index = activeConversation->currentIndexDestinationArray ; index>= zero ; index -- ){
+				if ( ( packetData->acknowledgeNumber == activeConversation->destinationPreviousPackets[ index ].acknowledgeNumber ) && ( packetData->sequenceNumber == activeConversation->destinationPreviousPackets[ index ].sequenceNumber + activeConversation->destinationPreviousPackets[ index ].dataLength ) );// returnValue = true;
+				else returnValue = false;
+			}
+		}
+		else if ( returnValue ){
+			for ( index = activeConversation->currentIndexSourceArray ; index>= zero ; index -- ){
+				if ( ( packetData->acknowledgeNumber == activeConversation->sourcePreviousPackets[ index ].acknowledgeNumber ) && ( packetData->sequenceNumber == activeConversation->sourcePreviousPackets[ index ].sequenceNumber + activeConversation->sourcePreviousPackets[ index ].dataLength ) );// returnValue = true;
+				else returnValue = false;
+			}
+		}
+	}
+	catch ( const std::exception &e ){
+		std::cerr<<PRINT<<"Exception:"<<e.what()<<std::endl;
+		returnValue = false;
+	}
+	return returnValue;
+}
+/*
+bool GrupPacket::checkSimultaniousNewPacket( bool cliSerFlag , __conversation__ *activeConversation , __rawNetData__ *packetData ){
+
+	int   index;
+	bool     returnValue ;
+
+#ifdef DEBUG
+	std::cout<<PRINT<<" sourceArrayIndex["<< activeConversation->currentIndexSourceArray<< " ] DestinationArrayIndes [ "<<activeConversation->currentIndexDestinationArray<< " ] \n";
+#endif
+	returnValue = true;
+
+	if ( activeConversationId < zero ) returnValue = false;
+	//check whether the packet is source( client) or destination( server) packets
+	//if the packet is client packet then check prev client packet, 
+	//if both ACK no are same and current packet's SEQ no = OLD SEQ + length
+	//it's a valid new packet
+	try{
+		if ( cliSerFlag && returnValue ){
+			for ( index = activeConversation->currentIndexSourceArray; index >= zero ; index -- ){
+				if ( ( packetData->sequenceNumber == ( activeConversation->sourcePreviousPackets[index].sequenceNumber + activeConversation->sourcePreviousPackets[ index ] .dataLength ) ) && ( packetData->acknowledgeNumber == activeConversation->sourcePreviousPackets[index].acknowledgeNumber ) ) ;//returnValue = true;
+				
+				else returnValue = false;
+			}
+		} else if ( returnValue ){
+			for ( index = activeConversation->currentIndexDestinationArray; index >= zero ; index -- ){
+				if ( ( packetData->sequenceNumber == ( activeConversation->destinationPreviousPackets[index].sequenceNumber + activeConversation->destinationPreviousPackets[ index ] .dataLength ) ) && ( packetData->acknowledgeNumber == activeConversation->destinationPreviousPackets[index].acknowledgeNumber ) ) ;//returnValue = true;
+				else returnValue = false;
+			}
+		}
+	}
+	catch ( const std::exception &e ){
+		std::cerr<<PRINT<<e.what()<<std::endl;
+		returnValue = false;
+	}
+	return returnValue;
+}
+*/
+bool GrupPacket::validPack(bool cliSerFlag ,  __conversation__ *activeConversation , __rawNetData__ *packetData ){
+	int    index;
+	bool      returnValue;
+
+	returnValue = true;
+
+	if ( activeConversationId < zero ) returnValue = false;
+		std::cout<<PRINT<<"RETURNONG FALSE\n";
+	try {
+		if ( cliSerFlag  && returnValue ){
+			for ( index = activeConversation->currentIndexSourceArray; index >=zero ; --index ){
+				if ( ( packetData->acknowledgeNumber == activeConversation->sourcePreviousPackets[ index ].sequenceNumber + activeConversation->sourcePreviousPackets[ index ].dataLength ) && ( packetData->sequenceNumber == activeConversation->sourcePreviousPackets[ index ].acknowledgeNumber ) ) ;//returnValue = true;
+				else returnValue = false;
+			}
+		}
+		else if ( returnValue ){
+			for ( index = activeConversation->currentIndexDestinationArray; index >=zero ; --index ){
+				if ( ( packetData->acknowledgeNumber == activeConversation->destinationPreviousPackets[ index ].sequenceNumber + activeConversation->destinationPreviousPackets[ index ].dataLength ) && ( packetData->sequenceNumber == activeConversation->destinationPreviousPackets[ index ].acknowledgeNumber ) );// returnValue = true;
+				else returnValue = false;
+			}
+		}
+	}
+	catch ( const std::exception &e ){
+		std::cerr<<PRINT<<"Exception"<<e.what()<<std::endl;
+		returnValue = false;
+	}
+	return returnValue;
+}
+/*
+bool GrupPacket::checkGreeting(  __conversation__ *activeConversation , __rawNetData__ *packetData ){
+	bool    returnValue;
+
+	returnValue = true;
+	if ( activeConversationId < zero ){
+		returnValue = false;
+	}
+return returnValue;	
+
+
+} 
+*/
+
+bool GrupPacket::insertDb( __rawNetData__ *packetData , bool flag ){
+	bool    returnValue;
+
+	returnValue = false;
+	std::cout<<__FUNCTION__<<"COnversation: [ "<<activeConversationId<<"] Packet: [ "<<packetNumber<<" ] SourcePOrt : [ "<<packetData->sourcePort<<" ]  Destination POrt:["<<packetData->destinationPort <<" ] Time:["<<packetData->dateTime<<"]"<<std::endl;
+  
+	if ( flag ){
+//		dbInstance->insertPacketIndex( activeConversationId , "suman" , "suman", "suman", "suman" );
+		 returnValue =  dbInstance->insertPacketIndex( activeConversationId  , "w", "S" , "false", "test-time");
+		if ( returnValue ){
+//			returnValue = insertPacketInfo( activeConversationId , packetNumber , packetData->dateTime , packetData->dateTime , packetData->dateTime , packetData->sourcePort , packetData->destinationPort ,"test");
+			returnValue = insertPacketInfo( activeConversationId , packetNumber , "false source ip" , "false destination ip" , "false dat" , packetData->sourcePort , packetData->destinationPort ,"test");
+		}
+
+	}else{
+			returnValue = insertPacketInfo( activeConversationId , packetNumber , "false source ip" , "false destination ip" , "false dat" , packetData->sourcePort , packetData->destinationPort ,"test");
+		//	returnValue = dbInstance ->insertPacketInfo( activeConversationId , packetNumber , packetData->dateTime , packetData->dateTime , packetData->dateTime , packetData->sourcePort , packetData->destinationPort ,"test");
+
+	}if ( !returnValue )
+			std::cerr<<PRINT<<"not able to insert data \n";
+
+	return returnValue ;
+
+
+}
+/*  
+bool GrupPacket::packetHandler( __rawNetData__ *packetData ){
+#ifdef ERROR
+	std::cout<<" Source Ip: ["<<packetData->sourceIp<< " ] DestinationIp [ "<<packetData->destinationIp
+		<<"  ]\nSourcePOrt [ "<<packetData->sourcePort<<" ] \nDestinationPOrt ["
+		<<packetData->destinationPort<<" ] \nSequence Number [ "<<packetData->sequenceNumber
+		<<"] \n AcknowledgeNumber: [ "<<packetData->acknowledgeNumber<<"]\n Flags\n ACK [ "
+		<<packetData->networkTcpFlags.__ACK__<<" ] \n SYN[ "<<packetData->networkTcpFlags.__SYN__
+		<<" ] \n FIN"<<packetData->networkTcpFlags.__FIN__<<" ] \n Time:["
+		<<packetData->dateTime<<"]"<<std::endl;
+#endif
+
+	bool    returnValue;
+
+	returnValue = true;
+	if ( packetData->destinationPort == 3306 ){
+		std::cout<<PRINT<<"outgoing packet\n";
+		if ( searchMother( false , &conversationDiary [ activeConversationId ], packetData ) ){
+			returnValue = copyPacket( true , &conversationDiary [ activeConversationId] , packetData );
+			returnValue == true ? returnValue = insertDb( packetData , false );
+		}
+		else{
+			returnValue = copyPacket ( true , &conversationDiary [ ++activeConversationId ] , packetData );
+			returnValue == true? returnValue  = insertDb( packetData , true ):returnValue = false;
+		}
+	}else{ //incoming packets
+		if ( searchMother ( true , &conversationDiary[ activeConversationId ] , packetData ) ){
+			returnValue = copyPacket ( false , &conversationDiary [ activeConversationId ], packetData );
+			returnValue == true? returnValue = insertDb( packetData, false ):returnValue = false;
+		}else{
+
+		}
+
+	}
+
+
+
+}
+*/
+
+bool GrupPacket::packetHandler ( __rawNetData__ * packetData ){
+#ifdef DEBUG
+	        std::cout<<"  ]\nSourcePOrt [ "<<packetData->sourcePort<<" ] \nDestinationPOrt ["
+		<<packetData->destinationPort<<" ] \nSequence Number [ "<<packetData->sequenceNumber
+		<<"] \n AcknowledgeNumber: [ "<<packetData->acknowledgeNumber<<"]\n Flags\n ACK [ "
+		<<packetData->networkTcpFlags.__ACK__<<" ] \n SYN[ "<<packetData->networkTcpFlags.__SYN__
+		<<" ] \n FIN"<<packetData->networkTcpFlags.__FIN__<<" ] Data Length:[ "<<packetData->dataLength<<" \ "<<std::endl;
+#endif
+
+	bool    returnValue;
+
+	returnValue = true;
+	/*-----------------------------------------------------------------------------
+	 *  check if packet is a threeway handshaking or connection termination or not
+	 *  if it's of that type then no need to consider those packets
+	 *-----------------------------------------------------------------------------*/
+	if ( packetData->destinationPort == 3306  ){ // incoming packet
+		//check whether the packet is acknowledgement packet or not
+		//for acknwledgement packet length of the packet is [0] and ACK flag [ set]
+		std::cout<<PRINT<<"Outgoing Packet"<<std::endl;
+		if (  packetData->networkTcpFlags.__ACK__ ){
+			std::cout<<PRINT<<" ACK FLAG ON-- OUTGOING \n";
+			if ( validPack ( false , &conversationDiary [ activeConversationId ] , packetData ) ){
+				std::cout<<PRINT<<"VALID ACK -- OUTGOING PACKET \n";
+				//insertData into database ( true , activeConversationId , ++packetNumber , packetData );
+				returnValue = copyPacket ( true , &conversationDiary [ activeConversationId ] , packetData );
+				
+				returnValue == true ?returnValue = insertDb( packetData , false ): returnValue = false;
+				
+			}else{
+				std::cout<<PRINT<<" ACK PACKET NOT VALID--- OUTGOING\n";
+				returnValue = false;
+
+			}
+			
+		}else if ( searchMother ( false , &conversationDiary [ activeConversationId ] , packetData ) ){
+			std::cout<<PRINT<<" CONSICUTIEVE PACKETS-- OUTGOING \n";
+			returnValue = copyPacket( true , &conversationDiary[ activeConversationId ], packetData );
+			returnValue == true ?returnValue = insertDb( packetData , false ):returnValue = false ;
+			//insert the packet
+		}
+	       //it's a new packet--start conversation
+	       else  { 
+		       std::cout<<"It's a fresh Outgoing Packet"<<std::endl;
+		       packetNumber = 0;
+		       returnValue = copyPacket( true , &conversationDiary [ ++activeConversationId ] , packetData );
+		       returnValue == true ?returnValue = insertDb( packetData , true ):returnValue = false ;
+		       	//insertpacketSetting( true , ++packet);
+	       }
+	}else if ( packetData->sourcePort == 3306 ){
+		std::cout<<PRINT<<" IN COMING PACKET \N";
+		if ( packetData->networkTcpFlags.__ACK__  ) {
+			std::cout<<PRINT<<"IT;S ACK PACKET -- IN COMING \n";
+			if (  validPack ( true , &conversationDiary [ activeConversationId] , packetData ) ){
+			std::cout<<"VALID ACK RESPONSE PACKET -- IN COMING"<<std::endl;
+			returnValue = copyPacket( false , &conversationDiary [ activeConversationId ] , packetData );
+			returnValue == true ?returnValue = insertDb( packetData , false ):returnValue = false ;
+			}else{
+				std::cerr<<PRINT<<" ACK PACKET NOT VALID-- IN COMING\n";
+				returnValue = false;
+			}
+
+		}else if ( searchMother ( true , &conversationDiary [activeConversationId ] , packetData ) ){
+			std::cout<<PRINT<<"CONTIMNIOUS PACKET--- IN COMING"<<std::endl;
+			returnValue = copyPacket( false , &conversationDiary [ activeConversationId ], packetData );
+			returnValue == true ?returnValue = insertDb( packetData , false ):returnValue = false ;
+		} else {// freash packet
+			std::cout<<"FRESH PACKET -- INCOMING"<<std::endl;
+			packetNumber = 0;
+			returnValue = copyPacket ( false , &conversationDiary[ ++activeConversationId ] , packetData );
+			returnValue == true ?returnValue = insertDb( packetData , true):returnValue = false ;
+		}
+	}
+	return returnValue;
+}
+
+
+
+
+void GrupPacket::startGruping( void ){
+	
+#ifdef DEBUG
+	std::cout<<PRINT<<"Reading and processing packet from shared Buffer\n";
+#endif
+	int    readCount;
+
+	readCount = 0;
+
+	Buffer            *readBufferObj;
+	__rawNetData__    *packet;
+	bool              flag;
+
+	flag = false;
+	try{
+		readBufferObj = new Buffer();
+		packet = new __rawNetData__();
+	}
+	catch ( const std::bad_alloc &ba ){
+		std::cerr<<PRINT<<"Exception:"<<ba.what()<<std::endl;
+	}
+	int readReturn;
+	while ( !flag ){
+//		pthread_mutex_lock(&lock);
+		readReturn = readBufferObj->readBuffer( 1 , packet ) ;
+//		pthread_mutex_unlock(&lock);
+		std::cout<<PRINT<<"read Return:[ "<<readReturn<<" ] \n";
+		switch ( readReturn ){
+			case 1:
+				++k;
+				std::cout<<"Read PacketSource POOrt:[ "<<packet->sourcePort<<" ]:: Destination Port:[ "<<packet->destinationPort<<" ]"<<std::endl;
+				readCount++;
+				std::cout<<PRINT<<"Go to groupPacket\n";
+				if (! packetHandler ( packet ) ){
+					std::cerr<<PRINT<<"Error on packet grouping\n";
+				//	readBufferObj->giveSignal();
+
+				//	flag = true;
+				}
+				if ( k == 5 ) exit ( 0 );
+				//succes on read
+				//now process the data
+				break;
+			case -1:
+				std::cerr<<PRINT<<"Error on read packet from buffer";
+				exit(1);
+				break;
+			case 0:
+				flag = readBufferObj->checkSignal();
+				std::this_thread::sleep_for ( std::chrono::milliseconds( 100 ) );
+				break;
+			default:
+				break;
+				//std::cout<<PRINT<<"Unhandled return Value from read Buffer \n";
+		}
+	}
+	std::cout<<PRINT<<"Total packet read from buffer: [ "<<readCount<< " ] \n";
+}
